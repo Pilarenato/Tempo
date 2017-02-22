@@ -1,0 +1,202 @@
+ utils.openstack.UtilSwift importação  *
+de utils.openstack.ConnectionGetter importação  *
+de utils.openstack.UtilSahara importação  *
+de utils.openstack.UtilKeystone importação  *
+de utils.openstack.UtilNova importação  *
+de utils.experiment.JsonParser importação  *
+de utils.experiment.sendMail importação sendMail
+
+importação OS
+importação sys
+importação subprocess
+Tempo de importação
+importação getpass
+do sub-processo de importação Popen, chamada, TUBULAÇÃO
+
+# --------------------- CONFIGURAÇÕES DEFAULT -------------------
+
+MIN_NUM_ARGS  =  3
+DEF_CLUSTER_NAME  =  " exp-hadoop- "
+HDFS_BASE_DIR  =  " / user / hadoop / "
+HOME_INSTANCE_DIR  =  " / home / hadoop "
+DEF_INPUT_DIR  =  " input "
+DEF_INPUT_SIZE_MB  =  5059
+DEF_MAPRED_TASKTRACKER_REDUCE_MAX  =  2
+
+# -------------------- FUNÇÕES ---------------------------- -benzóico.
+
+Def  configureInstances ( instancesIps , publicKeyPairPath , privateKeyPairPath ):
+	Print  " Configurando instâncias ... "
+	Para instanceIp em instancesIps:
+        	CommandArray = [ " ./SSHWithoutPassword.sh " , instanceIp, publicKeyPairPath, privateKeyPairPath]
+        	Command =  '  ' .join (commandArray)
+        	impressão de comando
+        	Call (comando, shell = True )
+        	Print  " Instância configurada com IP: " , instanceIp
+
+Def  copyFileToInstances ( filePath , instancesIps , keypairPath ):
+    Print  " Copiando "  + filePath + " arquivo para instâncias "
+    Para instanceIp em instancesIps:
+        CommandArray = [ " scp " , " -i " , keypairPath, " -r " , filePath, " hadoop @ " + instanceIp +  ' : ' + HOME_INSTANCE_DIR ]
+        Command =  '  ' .join (commandArray)
+        impressão de comando
+        Call (comando, shell = True )
+        Print  " Arquivo copiado para instância com IP: " , instanceIp
+
+Def  putFileInHDFS ( filePath , masterIp , keypairPath ):
+    Conexão [ ' nova ' ] .attach_volume (id_de_servidor, volume_id)
+    Time.sleep ( 2 )
+    File_name = filePath.split ( ' / ' ) [ - 1 ]
+    Print file_name
+    RemoteFilePath = nome_do_arquivo
+    commandArray = [ " ssh -i " , keypairPath, " hadoop @ "  + masterIp, " 'cat | python - " , remoteFilePath, DEF_INPUT_DIR  +  " ' " , " < " , " ./putFileInHDFS.py " ]
+    Command =  '  ' .join (commandArray)
+    impressão de comando
+    Call (comando, shell = True )
+    Conexão [ ' nova ' ] .detache_volume (id_de_servidor, volume_id)
+
+    Print  " Sucesso! O arquivo está agora no HDFS do cluster! "
+
+Def  deleteHDFSFolder ( keypairPath , masterIp ):
+	CommandArray = [ " ssh -i " , keypairPath, " hadoop @ "  + masterIp, " 'cat | python -' " , " < " , " ./removeOutputFile.py " ]
+	Command =  '  ' .join (commandArray)
+	impressão de comando
+	Chamada (comando, shell = True )
+
+Def  saveJobResult ( job_res , job_name , cluster_size , master_ip , num_reduces , job_num , output_file , input_size ):
+	resultado =  " ; " .join ((JOB_NAME, str (num_reduces), str (input_size), str (CLUSTER_SIZE), str (job_res [ ' tempo ' ]), job_res [ ' estatuto ' ])) +  " \ n "
+	Resultado de impressão
+	Impressão  " Terminado "
+	F =  open (arquivo de saída, ' ab ' )
+	F.write (resultado)
+	F.close ()
+
+Def  getConnection ( usuário , senha , project_name , project_id , main_ip ):
+
+    Resultado = {}
+
+    Connector = ConnectionGetter (usuário, senha, project_name, project_id, main_ip)
+
+    Keystone = UtilKeystone (conector.keystone ())
+    Token_ref_id = keystone.getTokenRef (usuário, senha, project_name) .id
+
+    Sahara = UtilSahara (connector.sahara (token_ref_id))
+
+    Nova = UtilNova (connector.nova ())
+
+    Resultado [ ' keystone ' ] = keystone
+    Resultado [ ' sahara ' ] = sahara
+    Resultado [ ' nova ' ] = nova
+
+    return resultado
+
+Def  printUsage ():
+	Print  " python runExperiment.py <numberExecs> <configFilePath> <outputFile> "
+
+se ( len (sys.argv) <  MIN_NUM_ARGS ):
+        Print  " Número errado de argumentos: " , len (sys.argv)
+        PrintUsage ()
+        Saída ( 1 )
+
+# ------------ CONFIGURAÇÕES -----------------
+Number_execs =  int (sys.argv [ 1 ])
+Config_file_path = sys.argv [ 2 ]
+Output_file = sys.argv [ 3 ]
+
+User =  raw_input ( ' Usuário OpenStack: ' )
+Password = getpass.getpass ( prompt = ' Senha do OpenStack: ' )
+
+Gmail_user =  raw_input ( ' Usuário do Gmail (sem @ gmail.com): ' )
+Gmail_password = getpass.getpass ( prompt = ' Senha do Gmail: ' )
+
+Json_parser = JsonParser (config_file_path)
+
+Main_ip = json_parser.get ( ' main_ip ' )
+
+Project_name = json_parser.get ( ' project_name ' )
+Project_id = json_parser.get ( ' project_id ' )
+
+Public_keypair_path = json_parser.get ( ' public_keypair_path ' )
+Private_keypair_path = json_parser.get ( ' private_keypair_path ' )
+Private_keypair_name = json_parser.get ( ' private_keypair_name ' )
+Input_file_path = json_parser.get ( ' input_file_path ' )
+
+Net_id = json_parser.get ( ' net_id ' )
+Image_id = json_parser.get ( ' image_id ' )
+Volume_id = json_parser.get ( ' volume_id ' )
+
+Mapred_factors = json_parser.get ( ' mapred_factor ' )
+
+# ------------ GETTING CONNECTION COM OPENSTACK -----------------
+Connection = getConnection (user, password, project_name, project_id, main_ip)
+
+# ----------------------- EXECUÇÃO DA EXPERIÊNCIA ------------------------ -benzóico.
+Job_number =  0
+Para cluster_template em json_parser.get ( ' cluster_templates ' ):
+	
+	Cluster_template_id = cluster_template [ ' id ' ]
+	Cluster_size = cluster_template [ ' n_slaves ' ]
+	Cluster_name =  DEF_CLUSTER_NAME  +  ' - '  +   str (cluster_size)
+
+	Print  ' Experiência em execução para cluster com número de trabalhadores = ' , cluster_size
+	# ######## CRIANDO CLUSTER #############
+	tente :
+	    Cluster_id = conexão [ ' sahara ' ] .createClusterHadoop (cluster_name, image_id, cluster_template_id, net_id, private_keypair_name)
+	Exceto  RuntimeError  como err:
+		Imprimir err.args
+		pausa
+		
+	# ######## CONFIGURAÇÃO CLUSTER ##########
+	InstancesIps = conexão [ ' sahara ' ] .get_instances_ips (cluster_id)
+	ConfigureInstances (instancesIps, public_keypair_path, private_keypair_path)
+	Master_ip = conexão [ ' sahara ' ] .get_master_ip (cluster_id)
+	Server_id = conexão [ ' sahara ' ] .get_master_id (cluster_id)
+	PutFileInHDFS (input_file_path, master_ip, private_keypair_path)
+
+	flag_pi =  Verdadeiro
+
+	Para mapred_factor em mapred_factors:
+		
+		Mapred_reduce_tasks =  str ( int ( round ( DEF_MAPRED_TASKTRACKER_REDUCE_MAX * (mapred_factor) * cluster_size)))
+
+		Para trabalho em json_parser.get ( ' jobs ' ):
+
+			 Se job [ ' name ' ] ==  ' Pi Estimator '  e flag_pi:
+               		Flag_pi =  False
+                    continuar
+
+			# ######## FUNCIONAMENTO JOB ##########
+			NumFailedJobs =  0
+			NumSucceededJobs =  0
+			Enquanto numSucceededJobs < número_execs:
+				tente :    
+					Input_size =  DEF_INPUT_SIZE_MB
+					Num_reduces = mapred_reduce_tasks
+
+					Se job [ ' name ' ] em [ ' Pi Estimator ' ]:
+                   		Num_reduces =  ' 1 '
+                        Input_size = trabalho [ ' args ' ] [ 0 ]
+
+					job_res = ligação [ ' sahara ' ] .runJavaActionJob ( main_class = trabalho [ ' main_class ' ], job_id = trabalho [ ' template_id ' ], CLUSTER_ID = CLUSTER_ID, reduz = num_reduces, args = trabalho [ ' args ' ])
+					
+					SaveJobResult (job_res, job [ ' nome ' ], cluster_size, master_ip, num_reduces, job_number, output_file, input_size)
+					se (job_res [ ' estatuto ' ] =!  ' SUCCEEDED ' ):
+						NumFailedJobs + =  1
+					Else :
+						NumSucceededJobs + =  1
+					
+					DeleteHDFSFolder (private_keypair_path, master_ip)
+					Impressão O  " tempo da ruptura ... vai toma um café e relaxa! "
+					Time.sleep ( 5 )
+			
+				Exceto  Exceção , e:
+					Print  " Exceção: " , e
+					Connection = getConnection (user, password, project_name, project_id, main_ip)
+					DeleteHDFSFolder (private_keypair_path, master_ip)
+	
+			sendMail ( ' Acabou trabalho % s \ n succes_jobs: % s failed_jobs: % s reduzir o Fator % s '  % (trabalho [ ' nome ' ], numSucceededJobs, numFailedJobs, str (mapred_factor)), gmail_user +  ' @ gmail.com ' , Gmail_user +  ' @ gmail.com ' , gmail_password, cluster_size, output_file)
+	Connection [ ' sahara ' ] .deleteCluster (cluster_id)
+	Print  ' ACABADO PARA CLUSTER '  + cluster_name
+	SendMail ( ' Sucesso! ' , Gmail_user +  ' @ gmail.com ' , gmail_user +  ' @ gmail.com ' , gmail_password, cluster_size, output_file)
+Entrar em contato com GitHub API Treinamento fazer compras Blog Sobre
+© 2017 GitHub , Inc. Termos Pri
