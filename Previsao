@@ -1,0 +1,277 @@
+ .
+* Código de: https://svn.apache.org/repos/asf/hadoop/common/branches/branch-1/src/examples/org/apache/hadoop/examples/terasort/TeraSort.java
+-benzóico.
+
+-benzóico .
+ * Licenciado para a Apache Software Foundation (ASF) sob um
+* Ou mais contratos de licença de colaborador. Veja o arquivo NOTICE
+ * Distribuído com este trabalho para obter informações adicionais
+* Com relação à propriedade dos direitos autorais. O ASF licenças este arquivo
+ * Para você sob a licença Apache, Versão 2.0 (o
+* "Licença"); Você não pode usar este arquivo exceto em conformidade
+* Com a Licença. Você pode obter uma cópia da Licença em
+ *
+ * Http://www.apache.org/licenses/LICENSE.2.0
+ *
+ * Exceto se exigido pela lei aplicável ou acordado por escrito, o software
+ * Distribuído sob a licença é distribuído em uma "COMO ESTÁ" BASE,
+ * SEM GARANTIAS OU CONDIÇÕES DE QUALQUER TIPO, expressas ou implícitas.
+ * Consulte a Licença para o idioma específico que rege as
+ * Limitações sob a Licença.
+ -benzóico.
+
+
+ Fonte do pacote ;
+
+Import  java.io.IOException ;
+Import  java.io.PrintStream ;
+Import  java.net.URI ;
+Import  java.util.ArrayList ;
+Import  java.util.List ;
+
+Import  org.apache.commons.logging.Log ;
+Import  org.apache.commons.logging.LogFactory ;
+Import  org.apache.hadoop.conf.Configured ;
+Import  org.apache.hadoop.filecache.DistributedCache ;
+Import  org.apache.hadoop.fs.FileSystem ;
+Import  org.apache.hadoop.fs.Path ;
+Import  org.apache.hadoop.io.NullWritable ;
+Import  org.apache.hadoop.io.SequenceFile ;
+Import  org.apache.hadoop.io.Text ;
+Import  org.apache.hadoop.mapred.FileOutputFormat ;
+Import  org.apache.hadoop.mapred.JobClient ;
+Import  org.apache.hadoop.mapred.JobConf ;
+Import  org.apache.hadoop.mapred.Partitioner ;
+Import  org.apache.hadoop.util.Tool ;
+Import  org.apache.hadoop.util.ToolRunner ;
+
+
+-benzóico .
+ * Gera os pontos de divisão amostrados, inicia o trabalho e espera que ele
+ * terminar. 
+ * <P>
+ * Para executar o programa: 
+ * <B> bin / hadoop jar hadoop-examples - *. Jar terasort in-dir out-dir </ b>
+ -benzóico.
+público  classe  TeraSort  estende  Configurado  implementa  ferramenta {
+  private  static  final de  Log  LOG  =  LogFactory . GetLog ( classe TeraSort . );
+  Private  static  final  String  OUTPUT_REPLICATION  =  " mapreduce.terasort.output.replication " ;
+
+  -benzóico .
+   * Um particionador que divide as chaves de texto em partições aproximadamente iguais
+   * Em uma ordem classificada global.
+   -benzóico.
+  Static  class  TotalOrderPartitioner  implementa  Partitioner < Text , Text > {
+    Privado  TrieNode trie;
+    Private  Texto [] splitPoints;
+
+    -benzóico .
+     * Um nó genérico
+     -benzóico.
+    Static  abstract  classe  TrieNode {
+       Nível int privado ;
+      TrieNode ( nível int  ) {
+        Este . Nível = nível;
+      }
+      Abstract  int  findPartition ( chave de texto  );
+      Abstract  void  print ( PrintStream  strm ) lança  IOException ;
+      Int  getLevel () {
+        Nível de retorno ;
+      }
+    }
+
+    -benzóico .
+     * Um nó interior trie que contém 256 crianças com base no próximo
+     * personagem.
+     -benzóico.
+    Static  class  InnerTrieNode  extends  TrieNode {
+      Private  TrieNode [] child =  new  TrieNode [ 256 ];
+      
+      InnerTrieNode ( nível int  ) {
+        Super (nível);
+      }
+      Int  findPartition ( chave de texto  ) {
+        Int level = getLevel ();
+        se (tecla . getLength () <= nível) {
+          Retornar criança [ 0 ] . FindPartition (chave);
+        }
+        Retornar criança [tecla . GetBytes () [nível]] . FindPartition (chave);
+      }
+      vazio  setChild ( int  idx , TrieNode  criança ) {
+        Este . Child [idx] = filho;
+      }
+      vazio  de impressão ( PrintStream  strm ) lança  IOException {
+        Para ( int ch = 0 ; ch <  255 ; ++ ch) {
+          Para ( int i =  0 ; i <  2 * getLevel (); ++ i) {
+            Strm . Impressão ( '  ' );
+          }
+          Strm . Impressão (ch);
+          Strm . Println ( " -> " );
+          If (child [ch] ! =  Null ) {
+            Criança [ch] . Impressão (strm);
+          }
+        }
+      }
+    }
+
+    -benzóico .
+     * Uma folha trie nó que faz seqüência de caracteres compara para descobrir onde o dado
+     * Chave pertence entre lower..upper.
+     -benzóico.
+     Classe  estática LeafTrieNode  extends  TrieNode {
+      Int inferior;
+      Int superior;
+      Texto [] splitPoints;
+      LeafTrieNode ( nível int  , Text [] splitPoints , int lower , int superior ) {  
+        Super (nível);
+        Este . SplitPoints = splitPoints;
+        Este . Inferior = inferior;
+        Este . Superior = superior;
+      }
+      Int  findPartition ( chave de texto  ) {
+        Para ( int i = inferior; i < superior; ++ i) {
+          se (splitPoints [i] . compareTo (key) > =  0 ) {
+            Return i;
+          }
+        }
+        Retorno superior;
+      }
+      vazio  de impressão ( PrintStream  strm ) lança  IOException {
+        Para ( int i =  0 ; i <  2 * getLevel (); ++ i) {
+          Strm . Impressão ( '  ' );
+        }
+        Strm . Impressão (inferior);
+        Strm . Imprimir ( " , " );
+        Strm . Println (superior);
+      }
+    }
+
+
+    -benzóico .
+     * Leia os pontos de corte do arquivo de seqüência dado.
+     * @param fs o sistema de arquivos
+     * @param p o caminho para ler
+     * @param job a configuração de trabalho
+     * @return as strings para dividir as partições em
+     * @throws IOException
+     -benzóico.
+    Private  static  Texto [] readPartitions ( FileSystem  fs , Path  p ,
+                                         JobConf  trabalho ) lança  IOException {
+      SequenceFile . Reader reader =  novo  SequenceFile . Leitor (fs, p, trabalho);
+      List < text > parts =  new  ArrayList < Text > ();
+      Text key =  new  Texto ();
+      NullWritable valor =  NullWritable . obter();
+      enquanto (leitor . next (chave, valor)) {
+        Peças . Adicionar (tecla);
+        Key =  new  Texto ();
+      }
+      Leitor . fechar();
+      Peças de retorno . ToArray ( novo  Texto [partes . Size ()]);  
+    }
+
+    -benzóico .
+     * Dado um conjunto classificado de pontos de corte, construir um trie que irá encontrar o correto
+     * Partição rapidamente.
+     * @param divide a lista de pontos de corte
+     * @param menor o limite inferior de partições 0..numPartitions-1
+     * @param superior o limite superior de partições 0..numPartitions-1
+     * @param prefixo o prefixo que nós já verificado contra
+     * @param maxDepth a profundidade máxima nós construiremos um trie para
+     * @return o nó trie que irá dividir os splits corretamente
+     -benzóico.
+    Private  static  TrieNode  buildTrie ( Texto [] divide , int  inferior , int  superior ,
+                                       Prefixo de texto , int  maxDepth ) {
+      Int depth = prefix . GetLength ();
+      se (profundidade > = maxDepth || menor == superior) {
+        Return  new  LeafTrieNode ( profundidade , splits, inferior, superior);
+      }
+      InnerTrieNode result =  new  InnerTrieNode ( profundidade );
+      Texto trial =  novo  Texto (prefixo);
+      // anexar um byte extra ao prefixo
+      trial . Acrescentar ( novo  byte [ 1 ], 0 , 1 );
+      Int currentBound = menor;
+      Para ( int ch =  0 ; ch <  255 ; ++ ch) {
+        trial . GetBytes () [depth] = ( byte ) (ch +  1 );
+        Lower = currentBound;
+        enquanto (currentBound < superior) {
+          se (splits [currentBound] . compareTo (trial) > =  0 ) {
+            quebrar ;
+          }
+          CurrentBound + =  1 ;
+        }
+        trial . GetBytes () [depth] = ( byte ) ch;
+        Resultado . Child [ch] = buildTrie (divide, lower, currentBound, trial,
+                                     profundidade máxima);
+      }
+      // pegar o resto
+      trial . GetBytes () [depth] =  127 ;
+      Resultado . Child [ 255 ] = buildTrie (splits, currentBound, upper, trial,
+                                    profundidade máxima);
+      Resultado de retorno ;
+    }
+
+    Public  void  configure ( trabalho JobConf  ) {
+      tente {
+        FileSystem fs =  FileSystem . GetLocal (trabalho);
+        Caminho partFile =  novo  Caminho ( TeraInputFormat . PARTITION_FILENAME );
+        SplitPoints = readPartitions (fs, partFile, job);
+        trie = buildTrie (splitPoints, 0 , splitPoints . comprimento, novo  Texto (), 2 );
+      } Catch ( IOException ie) {
+        Throw  new  IllegalArgumentException ( " não é possível ler o arquivo de partições " , ie);
+      }
+    }
+
+    Public  TotalOrderPartitioner () {
+    }
+
+    Public  int  getPartition ( Text  key , Text  value , int  numPartitions ) {
+      Return trie . FindPartition (chave);
+    }
+    
+  }
+
+  Public  static  int  getOutputReplication ( trabalho JobConf  ) {
+    Retornar trabalho . GetInt ( OUTPUT_REPLICATION , 1 );
+  }
+  
+  público  int  prazo ( de corda [] args ) throws  Exception {
+    LOG . Info ( " iniciar " );
+    JobConf job = ( JobConf ) getConf ();
+
+    Caminho inputDir =  novo  Caminho (args [ 0 ]);
+    InputDir = inputDir . MakeQualified (inputDir . GetFileSystem (trabalho));
+    Caminho partitionFile =  novo  Caminho (inputDir, TeraInputFormat . PARTITION_FILENAME );
+    URI partitionUri =  novo  URI (partitionFile . ToString () +
+                               " # "  +  TeraInputFormat . PARTITION_FILENAME );
+    TeraInputFormat . SetInputPaths (job, novo  Path (args [ 0 ]));
+    FileOutputFormat . SetOutputPath (job, novo  Path (args [ 1 ]));
+    Trabalho . SetJobName ( " TeraSort " );
+    Trabalho . SetJarByClass ( classe TeraSort . );
+    Trabalho . SetOutputKeyClass ( classe de texto . );
+    Trabalho . SetOutputValueClass ( Text . Class);
+    Trabalho . SetInputFormat ( TeraInputFormat . Class);
+    Trabalho . SetOutputFormat ( TeraOutputFormat . Class);
+    Trabalho . SetPartitionerClass ( classe TotalOrderPartitioner . );
+    TeraInputFormat . WritePartitionFile (trabalho, partitionFile);
+    DistributedCache . AddCacheFile (partitionUri, job);
+    DistributedCache . CreateSymlink (trabalho);
+    Trabalho . SetInt ( " dfs.replication " , getOutputReplication (trabalho));
+    TeraOutputFormat . SetFinalSync (job, true );
+    JobClient . RunJob (job);
+    LOG . Info ( " feito " );
+    Return  0 ;
+  }
+
+  -benzóico .
+   * @param args
+   -benzóico.
+  Public  static  void  main ( String [] args ) lança  Exception {
+	JobConf jobConf =  novo  JobConf ();
+	// MINHAS MUDANÇAS PARA OOZIE CONFIGURATIONS WORK
+	JobConf . AddResource ( new  Path ( " file: /// " , System . GetProperty ( " oozie.action.conf.xml " )));
+	// END
+    Int res =  ToolRunner . Run (jobConf, novo  TeraSort (), args);
+    Sistema . Saída (res);
+  }
+
+}
